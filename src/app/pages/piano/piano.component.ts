@@ -1,4 +1,4 @@
-import {ChangeDetectionStrategy, Component, HostListener, Inject, OnInit} from '@angular/core';
+import {ChangeDetectionStrategy, Component, EventEmitter, HostListener, Inject, OnInit} from '@angular/core';
 import { MEDIA_DEVICES } from '@ng-web-apis/common';
 import {inputById, MIDI_ACCESS, MIDI_INPUT, MIDI_MESSAGES, MIDI_OUTPUT, notes, outputByName, toData,mainVolume} from '@ng-web-apis/midi';
 import {EMPTY, merge, Observable, Subject} from 'rxjs';
@@ -8,6 +8,7 @@ import { RESPONSE_BUFFER } from './response';
 import * as Tone from 'tone'
 
 import MIDIMessageEvent = WebMidi.MIDIMessageEvent;
+import { Note } from './note';
 
 @Component({
   selector:'a',
@@ -19,11 +20,8 @@ export class PianoComponent implements OnInit {
   readonly octaves = Array.from({length: 24}, (_, i) => i + 48);
 
 
-  private readonly mousedown$ = new Subject<number>();
-
-  private readonly mouseup$ = new Subject<void>();
-
-  private readonly silent$ = new Subject<number>();
+  noteAddEvent:EventEmitter<Note>=new EventEmitter();
+  noteRemoveEvent:EventEmitter<string>=new EventEmitter();
   noteKeyMap:{[key:string]:Tone.PolySynth}={};
   constructor(
   @Inject(MIDI_MESSAGES) messages$: Observable<MIDIMessageEvent>,
@@ -32,6 +30,11 @@ export class PianoComponent implements OnInit {
   @Inject(MIDI_OUTPUT) output: Promise<any>,
 
   ) {
+    input.then(res=>{
+      
+      console.log('res :', res);
+    })
+
     messages$.subscribe(res=>{
 
       console.log('res.data :', res.data);
@@ -41,17 +44,17 @@ export class PianoComponent implements OnInit {
       if(channel==144){
         if(value>0){
 
-          this.addNote(key,value)
+          this.noteAddEvent.emit({name:this.getNote(key),velocity:value})
          // this.playNote(this.getNote(key),value/512);
         }else if(value<=0){
-          this.removeNote(key,value);
+          this.noteRemoveEvent.emit(this.getNote(key))
         }
         
 
       }
     })
   }
-  activeNotes:string[]=[]
+  activeNotes:Note[]=[]
   notes=['C','C#','D', 'D#','E', 'F','F#', 'G','G#','A','A#','B']
   getNote(index:number){
   // console.log('index :', index);
@@ -64,37 +67,41 @@ export class PianoComponent implements OnInit {
     return this.notes[mode]+octave
 
   }
-  addNote(key:number,value:number){
-    let note=this.getNote(key)
-    let _haveNote=this.activeNotes.find(x=>x===note)
-    if(!_haveNote){
-      this.activeNotes.push(note);
-      this.noteKeyMap[note]=this.playNote(this.getNote(key), value / 512);
-    }
-  }
-  removeNote(key:number,value:number){
-    const now = Tone.now()
-    let note=this.getNote(key)
-    this.activeNotes=this.activeNotes.filter(x=>x!==note);
-    this.noteKeyMap[note].dispose()
 
-  }
   //piano 
 
   
   playNote=(note:string,velocity:number)=>{
-    const now = Tone.now()
-    const synth = new Tone.PolySynth(Tone.AMSynth).toDestination();
-    // trigger the attack immediately
-    
-   return synth.triggerAttack(note,1,velocity);
+
     
     // wait one second before triggering the release
   }
   stopNote(){
   }
+  synth = new Tone.PolySynth().toDestination();
   ngOnInit() {
-    
+    const now = Tone.now()
+
+    this.synth.sync();
+    // trigger the attack immediately
+  
+    this.noteAddEvent.subscribe(note=>{
+    console.log('note :', note);
+    const now = Tone.now()
+
+      this.synth.triggerAttackRelease(note.name,"8n",now,note.velocity?note.velocity/128:0);
+      console.log('note.velocity?note.velocity/256:0 :', note.velocity?note.velocity/128:0);
+      let haveNote=this.activeNotes.find(x=>x.name==note.name)
+      if(haveNote){
+        haveNote=note;
+      }else{
+        this.activeNotes.push(note);
+      }
+    })
+    this.noteRemoveEvent.subscribe(note=>{
+      this.activeNotes=this.activeNotes.filter(x=>x.name!==note)
+
+    })
 
   }
 
